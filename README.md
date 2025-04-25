@@ -17,8 +17,8 @@ For this very first version, the only features available are :
 
 ##
 > **Note :**
-> some commands offer the possibility to create a virtual midi device, but it does not work under Windows.
-> If you need a virtual device under Windows, you must use a virtual midi driver, like :
+> some commands offer the possibility to create a virtual midi device, but it does not work on Windows.
+> If you need a virtual device on Windows, you must use a virtual midi driver, like :
 > - LoopBe1 (https://www.nerds.de/en/download.html) : Works with Windows 7 - 11
 > - LoopMidi (https://www.tobias-erichsen.de/software/loopmidi.html) : Works with Windows 7 - 10
 
@@ -29,7 +29,7 @@ The next features will be :
 - Message transform / tailoring
 
 ## Installation
-- Install python 3.8+
+- Install python 3.10+
 - Install python-rtmidi library :
 ```sh
 python -m pip install python-rtmidi
@@ -43,7 +43,7 @@ python midimator.py -h
 ```
 
 ## Tech and dependencies
-- [Python 3] - Required version is 3.7+
+- [Python 3] - Required version is 3.10+
 - [python-rtmidi] - a python library to receive and send MIDI messages
 
 

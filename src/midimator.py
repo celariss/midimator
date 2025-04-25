@@ -3,29 +3,8 @@ import argparse, sys, os
 import time
 import rtmidi
 
-class MidiHelpers:
-    def get_midi_ports()->dict:
-        available_ports = {}
-        midiin = rtmidi.MidiIn()
-        idx = 0
-        for port in midiin.get_ports():
-            available_ports[port] = {'input_idx':idx}
-            idx += 1
-        del midiin
-        
-        midiout = rtmidi.MidiOut()
-        idx = 0
-        for port in midiout.get_ports():
-            value = available_ports[port] if port in available_ports else {}
-            value['output_idx'] = idx
-            available_ports[port] = value
-            idx += 1
-        del midiout
+from midihelpers import MidiHelpers
 
-        return available_ports
-    
-    def msg_to_string(midimsg:list):
-        return '[' + ', '.join('0x%02X' % x for x in midimsg) + ']'
 
 def str_to_int(value:str, default:int = None)->int:
     """convert a string to an integer
