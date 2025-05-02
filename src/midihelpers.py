@@ -1,12 +1,15 @@
+import datetime
 from enum import Enum
-import rtmidi
+import sys
+import mido
 
 # source : https://midi.org/spec-detail
 # MIDI 1.0 message format :
 #	[Status, Data1, Data2, ...]
-# A message canb be either a Channel message (see ChannelMsg below),
-# a System Common or Real-Time Messages (see SystemCommonMsg below),
-# depending on the first byte (Status).
+# A message can be either :
+# - a channel message (see ChannelMsg below),
+# - a system Common or Real-Time Messages (see SystemCommonMsg below),
+# (depending on the "Status" : first byte)
 
 # Channel Voice/Mode messages enumeration
 # Status byte :
@@ -47,43 +50,77 @@ class ChannelMsg(Enum):
     PitchBendChange = 0x0E
 
 # Control Change Messages
-#   => when Status == ChannelMsg.CtrlChangeOrChannelModeMsg and Data1<120
+#   => when Status == ChannelMsg.CtrlChangeOrChannelModeMsg and Data1<120 (0x78)
 # Data1 : event type, see values of the enumeration below
 # Data2 : value associated with the event type
 class ControlChangeMsg(Enum):
     BankSelect     = 0x00
     ModulationWheelOrLever = 0x01
     BreathController = 0x02
+    Undefined_03   = 0x03
     FootController = 0x04
     PortamentoTime = 0x05
     DataEntry      = 0x06
     ChannelVolume  = 0x07
     Balance        = 0x08
+    Undefined_09   = 0x09
     Pan            = 0x0A
     ExpressionController = 0x0B
     EffectControl1 = 0x0C
     EffectControl2 = 0x0D
+    Undefined_0E   = 0x0E
+    Undefined_0F   = 0x0F
     GeneralPurposeController1 = 0x10
     GeneralPurposeController2 = 0x11
     GeneralPurposeController3 = 0x12
     GeneralPurposeController4 = 0x13
+
+    Undefined_14   = 0x14
+    Undefined_15   = 0x15
+    Undefined_16   = 0x16
+    Undefined_17   = 0x17
+    Undefined_18   = 0x18
+    Undefined_19   = 0x19
+    Undefined_1A   = 0x1A
+    Undefined_1B   = 0x1B
+    Undefined_1C   = 0x1C
+    Undefined_1D   = 0x1D
+    Undefined_1E   = 0x1E
+    Undefined_1F   = 0x1F
     
     LSBforBankSelect = 0x20
     LSBForModulationWheelOrLever = 0x21
     LSBForBreathController = 0x22
+    LSBForControl3         = 0x23
     LSBForFootController   = 0x24
     LSBForPortamentoTime   = 0x25
     LSBForDataEntry        = 0x26
     LSBForChannelVolume    = 0x27
     LSBForBalance          = 0x28
+    LSBForControl9         = 0x29
     LSBForPan              = 0x2A
     LSBForExpressionController = 0x2B
-    LSBForEffectControl1   = 0x2C
-    LSBForEffectControl2   = 0x2D
+    LSBForEffectControl1    = 0x2C
+    LSBForEffectControl2    = 0x2D
+    LSBForControl14         = 0x2E
+    LSBForControl15         = 0x2F
     LSBForGeneralPurposeController1 = 0x30
     LSBForGeneralPurposeController2 = 0x31
     LSBForGeneralPurposeController3 = 0x32
     LSBForGeneralPurposeController4 = 0x33
+
+    LSBForControl20         = 0x34
+    LSBForControl21         = 0x35
+    LSBForControl22         = 0x36
+    LSBForControl23         = 0x37
+    LSBForControl24         = 0x38
+    LSBForControl25         = 0x39
+    LSBForControl26         = 0x3A
+    LSBForControl27         = 0x3B
+    LSBForControl28         = 0x3C
+    LSBForControl29         = 0x3D
+    LSBForControl30         = 0x3E
+    LSBForControl31         = 0x3F
     
     # Data2  : ≤63 off, ≥64 on
     DamperPedalOnOff = 0x40
@@ -112,16 +149,51 @@ class ControlChangeMsg(Enum):
     GeneralPurposeController7 = 0x52
     GeneralPurposeController8 = 0x53
     PortamentoControl = 0x54
+    Undefined_55   = 0x55
+    Undefined_56   = 0x56
+    Undefined_57   = 0x57
     HighResolutionVelocityPrefix = 0x58
+    Undefined_59   = 0x59
+    Undefined_5A   = 0x5A
     
     Effects1Depth = 0x5B
     Effects2Depth = 0x5C
     Effects3Depth = 0x5D
     Effects4Depth = 0x5E
     Effects5Depth = 0x5F
+
+    DataIncrement = 0x60
+    DataDecrement = 0x61
+
+    # Non-Registered Parameter Number
+    NRPN_LSB = 0x62
+    NRPN_MSB = 0x63
+
+    # Registered Parameter Number
+    RPN_LSB = 0x64
+    RPN_MSB = 0x65
+
+    Undefined_66   = 0x66
+    Undefined_67   = 0x67
+    Undefined_68   = 0x68
+    Undefined_69   = 0x69
+    Undefined_6A   = 0x6A
+    Undefined_6B   = 0x6B
+    Undefined_6C   = 0x6C
+    Undefined_6D   = 0x6D
+    Undefined_6E   = 0x6E
+    Undefined_6F   = 0x6F
+    Undefined_70   = 0x70
+    Undefined_71   = 0x71
+    Undefined_72   = 0x72
+    Undefined_73   = 0x73
+    Undefined_74   = 0x74
+    Undefined_75   = 0x75
+    Undefined_76   = 0x76
+    Undefined_77   = 0x77
     
 # Channel Mode Messages
-#   => when Status == ChannelMsg.CtrlChangeOrChannelModeMsg and Data1 in [120,127]
+#   => when Status == ChannelMsg.CtrlChangeOrChannelModeMsg and Data1 in [120,127] ([0x78, 0x7F])
 # Data1 : value of the enumeration below
 class ChannelModeMsg(Enum):
     # When All Sound Off is received all oscillators will turn off, 
@@ -194,34 +266,42 @@ class SystemCommonMsg(Enum):
     # preferably under manual control. In particular, it should not be sent on power-up.
     Reset = 0xFF
 
+def get_timestr(time:datetime.datetime)->str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S.%f")
+
 class MidiHelpers:
     def get_midi_ports()->dict:
+        """Return a list of all midi ports available on the current system
+
+        Returns:
+            dict: key item is the port name
+        """
         available_ports = {}
-        midiin = rtmidi.MidiIn()
         idx = 0
-        for port in midiin.get_ports():
+        for port in mido.get_input_names():
             available_ports[port] = {'input_idx':idx}
             idx += 1
-        del midiin
         
-        midiout = rtmidi.MidiOut()
         idx = 0
-        for port in midiout.get_ports():
+        for port in mido.get_output_names():
             value = available_ports[port] if port in available_ports else {}
             value['output_idx'] = idx
             available_ports[port] = value
             idx += 1
-        del midiout
 
         return available_ports
     
-    def msg_to_string(midimsg:list)->str:
+    def msg_to_string(midimsg:mido.Message)->str:
         return MidiHelpers.msg_to_raw_string(midimsg) + ' = ' + MidiHelpers.msg_to_friendly_string(midimsg)
     
-    def msg_to_raw_string(midimsg:list)->str:
+    def msg_to_raw_string(midimsg:mido.Message)->str:
+        return MidiHelpers.bytes_to_raw_string(midimsg.bytes())
+    
+    def bytes_to_raw_string(midimsg:list)->str:
         return '[' + ', '.join('0x%02X' % x for x in midimsg) + ']'
     
-    def msg_to_friendly_string(msg:list)->str:
+    def msg_to_friendly_string(msg:mido.Message)->str:
+        msg = msg.bytes()
         size = len(msg)
         data_str = []
         invalid_data = True
@@ -231,9 +311,11 @@ class MidiHelpers:
             if MidiHelpers._has_value(ChannelMsg, MSB):
                 status = ChannelMsg(MSB)
                 channel = LSB
-                data_str.append('channel:' + str(LSB+1))
+                data_str.append('channel:' + str(channel+1))
+                
                 if status==ChannelMsg.NoteOff or status==ChannelMsg.NoteOn or status==ChannelMsg.PolyphonicKeyPressure:
                     if size==3:
+                        data_str.insert(0, MidiHelpers._enum2str(status))
                         data_str.append('note:'+MidiHelpers._note_to_string(msg[1]))
                         data_str.append('velocity:' + str(msg[2]))
                         invalid_data = False
@@ -241,29 +323,32 @@ class MidiHelpers:
                 elif status==ChannelMsg.CtrlChangeOrChannelModeMsg:
                     if size==3:
                         if msg[1]<120 and msg[1] in ControlChangeMsg:
-                            data_str.append(str(ControlChangeMsg(msg[1])))
+                            data_str.insert(0, str(ControlChangeMsg(msg[1])))
                             if msg[2]<128:
-                                data_str.append(int(msg[2]))
+                                data_str.append(str(msg[2]))
                                 invalid_data = False
                         elif msg[1]>=120 and msg[1] in ChannelModeMsg:
-                            data_str.append(str(ChannelModeMsg(msg[1])))
+                            data_str.insert(0, str(ChannelModeMsg(msg[1])))
                             if msg[2]<128:
-                                data_str.append(int(msg[2]))
+                                data_str.append(str(msg[2]))
                                 invalid_data = False
                                 
                 elif status==ChannelMsg.ProgramChange or status==ChannelMsg.ChannelPressure:
                     if size==2:
-                        data_str.append(int(msg[1]))
+                        data_str.insert(0, MidiHelpers._enum2str(status))
+                        data_str.append(str(msg[1]))
                         invalid_data = False
                         
                 elif status==ChannelMsg.PitchBendChange:
                     if size==3:
+                        data_str.insert(0, MidiHelpers._enum2str(status))
                         data_str.append('LSB='+str(msg[1]))
                         data_str.append('MSB='+str(msg[2]))
                         invalid_data = False
                 
             elif MidiHelpers._has_value(SystemCommonMsg, msg[0]):
                 status = SystemCommonMsg(msg[0])
+                data_str.insert(0, MidiHelpers._enum2str(status))
                 invalid_data = False
                 # TBD
             else:
@@ -271,7 +356,6 @@ class MidiHelpers:
         else:
             return 'empty message'
             
-        data_str.insert(0, str(status))
         if invalid_data:
             data_str.append('invalid data')
         return '['+', '.join(data_str)+']'
@@ -284,6 +368,20 @@ class MidiHelpers:
         octave = value//12
         return MidiHelpers._notes_str[note]+str(octave+1)
     
-    def _has_value(enum, value):
+    def send_bytes(outport, bytes_msg:list)->bool:
+        if len(bytes_msg)>3 and bytes_msg[0] != 0xF0:
+            bytes_msg.insert(0, 0xF0)
+        try:
+            midimsg:mido.Message = mido.Message.from_bytes(bytes_msg)
+        except:
+            print('error: Invalid midi message '+MidiHelpers.bytes_to_raw_string(bytes_msg), file=sys.stderr)
+            return False
+        print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (to: "'+outport[1]+'")')
+        outport[0].send(midimsg)
+        return True
+    
+    def _has_value(enum, value)->bool:
         return value in enum._value2member_map_ 
-
+    
+    def _enum2str(enumvalue)->str:
+        return str(enumvalue).split('.')[1]

@@ -1,9 +1,10 @@
+import datetime
 import signal
 import argparse, sys, os
 import time
-import rtmidi
+import mido
 
-from midihelpers import MidiHelpers
+from midihelpers import MidiHelpers, get_timestr
 
 
 def str_to_int(value:str, default:int = None)->int:
@@ -23,13 +24,6 @@ def str_to_int(value:str, default:int = None)->int:
 def signal_handler(signal, frame):
     """Handler for Ctrl-C"""
     sys.exit(0)
-
-def receive_callback(value, outport):
-    """Function called when MIDI data is received"""
-    midimsg = value[0]
-    print('received message : '+MidiHelpers.msg_to_string(midimsg))
-    if outport:
-        outport.send_message(midimsg)
 
 def cmd_list_port():
     ports = MidiHelpers.get_midi_ports()
@@ -53,40 +47,34 @@ def get_or_create_port(port, out, create_port_if_needed = True):
     """
     port_name = None
     ports:dict = MidiHelpers.get_midi_ports()
-    port = str_to_int(port)
-    if port != None:
-        if port>0 and port<=len(ports):
-            port_name = list(ports.keys())[port-1]
+    port_ = str_to_int(port)
+    if port_ != None:
+        if port_>0 and port_<=len(ports):
+            port_name = list(ports.keys())[port_-1]
         else:
-            print('error: given number ('+str(port)+') for midi port is out of range', file=sys.stderr)
+            print('error: given number ('+str(port_)+') for midi port is out of range', file=sys.stderr)
             return None
     
+    virtual = False
     if port_name:
         if out:
             if not 'output_idx' in ports[port_name]:
                 print('error: "'+port_name+'" is not an outport port', file=sys.stderr)
                 return None
-            port_idx = ports[port_name]['output_idx']
         else:
             if not 'input_idx' in ports[port_name]:
                 print('error: "'+port_name+'" is not an input port', file=sys.stderr)
                 return None
-            port_idx = ports[port_name]['input_idx']
+    elif create_port_if_needed:
+        port_name = port
+        virtual = True
+    else:
+        return None
     
     if out:
-        midi = rtmidi.MidiOut()
+        midi = mido.open_output(port_name, virtual=virtual)
     else:
-        midi = rtmidi.MidiIn()
-
-    if port_name:
-        midi.open_port(port_idx)
-    elif create_port_if_needed:
-        # create a virtual port
-        midi.open_virtual_port(port)
-        port_name = port
-    else:
-        del midi
-        return None
+        midi = mido.open_input(port_name, virtual=virtual)
     
     return (midi, port_name)
 
@@ -95,41 +83,37 @@ def cmd_transfer(input_port, output_port):
     outport = get_or_create_port(output_port, True)
 
     if inport and outport:
-        inport[0].set_callback(receive_callback, outport)
-        inport[0].ignore_types(False, False, False)
         # Enter infinite loop (until CTRL+C is pressed)
         signal.signal(signal.SIGINT, signal_handler)
         while True:
-            time.sleep(1)
+            for midimsg in inport[0].iter_pending():
+                outport[0].send(midimsg)
+                print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (from: "'+inport[1]+'", to: "'+outport[1]+'")')
 
 def cmd_capture(input_port):
     inport = get_or_create_port(input_port, False)
 
     if inport:
-        inport[0].set_callback(receive_callback, None)
-        inport[0].ignore_types(False, False, False)
         # Enter infinite loop (until CTRL+C is pressed)
         signal.signal(signal.SIGINT, signal_handler)
         while True:
-            time.sleep(1)
+            for midimsg in inport[0].iter_pending():
+                print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (from: "'+inport[1]+'")')
 
 def cmd_send(output_port, msg:list):
+    bytes_msg = []
+    for value in msg:
+        midivalue = str_to_int(value)
+        if midivalue==None or midivalue<0 or midivalue>255:
+            print('error: invalid value in midi message "'+str(value)+'"', file=sys.stderr)
+            return
+        bytes_msg.append(midivalue)
+
     outport = get_or_create_port(output_port, True, False)
 
     if outport:
-        midimsg = []
-        for value in msg:
-            midivalue = str_to_int(value)
-            if midivalue==None:
-                print('error: invalid value in midi message "'+str(value)+'"', file=sys.stderr)
-                return
-            midimsg.append(midivalue)
-        print('sending message '+MidiHelpers.msg_to_string(midimsg)+' to "'+outport[1]+'"')
-        if len(midimsg)>3:
-            midimsg.insert(0, 0xF0)
-        outport[0].send_message(midimsg)
-        outport = outport[0]
-        del outport
+        MidiHelpers.send_bytes(outport, bytes_msg)
+        outport[0].close()
 
 def main(argv):
     argParser = argparse.ArgumentParser(description="Midimator can transfer midi messages from one interface to another")
