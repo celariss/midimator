@@ -1,4 +1,5 @@
 import datetime
+from functools import partial
 import signal
 import argparse, sys, os
 import time
@@ -25,6 +26,13 @@ def signal_handler(signal, frame):
     """Handler for Ctrl-C"""
     sys.exit(0)
 
+def callback_receive(midimsg, inport, outport = None):
+    outstr = ''
+    if outport:
+        outport[0].send(midimsg)
+        outstr = '", to: "'+outport[1]+'"'
+    print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (from: "'+inport[1]+'"'+outstr+')')
+    
 def cmd_list_port():
     ports = MidiHelpers.get_midi_ports()
     print('  #| IN|OUT| PORT NAME')
@@ -83,22 +91,21 @@ def cmd_transfer(input_port, output_port):
     outport = get_or_create_port(output_port, True)
 
     if inport and outport:
+        inport[0].callback = partial(callback_receive, inport=inport, outport=outport)
         # Enter infinite loop (until CTRL+C is pressed)
         signal.signal(signal.SIGINT, signal_handler)
         while True:
-            for midimsg in inport[0].iter_pending():
-                outport[0].send(midimsg)
-                print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (from: "'+inport[1]+'", to: "'+outport[1]+'")')
+            time.sleep(1)
 
 def cmd_capture(input_port):
     inport = get_or_create_port(input_port, False)
 
     if inport:
+        inport[0].callback = partial(callback_receive, inport=inport)
         # Enter infinite loop (until CTRL+C is pressed)
         signal.signal(signal.SIGINT, signal_handler)
         while True:
-            for midimsg in inport[0].iter_pending():
-                print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (from: "'+inport[1]+'")')
+            time.sleep(1)
 
 def cmd_send(output_port, msg:list):
     bytes_msg = []
