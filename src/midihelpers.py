@@ -269,6 +269,12 @@ class SystemCommonMsg(Enum):
 def get_timestr(time:datetime.datetime)->str:
     return time.strftime("%Y-%m-%dT%H:%M:%S.%f")
 
+def int_to_str(value:int, hexa:bool):
+    if hexa:
+        return hex(value)
+    else:
+        return str(value)
+
 class MidiHelpers:
     def get_midi_ports()->dict:
         """Return a list of all midi ports available on the current system
@@ -291,16 +297,16 @@ class MidiHelpers:
 
         return available_ports
     
-    def msg_to_string(midimsg:mido.Message)->str:
-        return MidiHelpers.msg_to_raw_string(midimsg) + ' = ' + MidiHelpers.msg_to_friendly_string(midimsg)
+    def msg_to_string(midimsg:mido.Message, hexa:bool = False)->str:
+        return MidiHelpers.msg_to_raw_string(midimsg,hexa) + ' = ' + MidiHelpers.msg_to_friendly_string(midimsg,hexa)
     
-    def msg_to_raw_string(midimsg:mido.Message)->str:
-        return MidiHelpers.bytes_to_raw_string(midimsg.bytes())
+    def msg_to_raw_string(midimsg:mido.Message, hexa:bool = False)->str:
+        return MidiHelpers.bytes_to_raw_string(midimsg.bytes(), hexa)
     
-    def bytes_to_raw_string(midimsg:list)->str:
-        return '[' + ', '.join('0x%02X' % x for x in midimsg) + ']'
+    def bytes_to_raw_string(midimsg:list, hexa:bool = False)->str:
+        return '[' + ', '.join(int_to_str(x,hexa) for x in midimsg) + ']'
     
-    def msg_to_friendly_string(msg:mido.Message)->str:
+    def msg_to_friendly_string(msg:mido.Message, hexa:bool = False)->str:
         msg = msg.bytes()
         size = len(msg)
         data_str = []
@@ -311,44 +317,44 @@ class MidiHelpers:
             if MidiHelpers._has_value(ChannelMsg, MSB):
                 status = ChannelMsg(MSB)
                 channel = LSB
-                data_str.append('channel:' + str(channel+1))
+                data_str.append('channel:' + int_to_str(channel+1, hexa))
                 
                 if status==ChannelMsg.NoteOff or status==ChannelMsg.NoteOn or status==ChannelMsg.PolyphonicKeyPressure:
                     if size==3:
-                        data_str.insert(0, MidiHelpers._enum2str(status))
-                        data_str.append('note:'+MidiHelpers._note_to_string(msg[1]))
-                        data_str.append('velocity:' + str(msg[2]))
+                        data_str.insert(0, MidiHelpers._enum2str(status,hexa))
+                        data_str.append('note:'+MidiHelpers._note_to_string(msg[1])+'('+int_to_str(msg[1],hexa)+')')
+                        data_str.append('velocity:' + int_to_str(msg[2],hexa))
                         invalid_data = False
                 
                 elif status==ChannelMsg.CtrlChangeOrChannelModeMsg:
                     if size==3:
                         if msg[1]<120 and msg[1] in ControlChangeMsg:
-                            data_str.insert(0, str(ControlChangeMsg(msg[1])))
+                            data_str.insert(0, 'CC.'+MidiHelpers._enum2str(ControlChangeMsg(msg[1]),hexa))
                             if msg[2]<128:
-                                data_str.append(str(msg[2]))
+                                data_str.append(int_to_str(msg[2],hexa))
                                 invalid_data = False
                         elif msg[1]>=120 and msg[1] in ChannelModeMsg:
-                            data_str.insert(0, str(ChannelModeMsg(msg[1])))
+                            data_str.insert(0, 'CM.'+MidiHelpers._enum2str(ChannelModeMsg(msg[1]),hexa))
                             if msg[2]<128:
-                                data_str.append(str(msg[2]))
+                                data_str.append(int_to_str(msg[2],hexa))
                                 invalid_data = False
                                 
                 elif status==ChannelMsg.ProgramChange or status==ChannelMsg.ChannelPressure:
                     if size==2:
-                        data_str.insert(0, MidiHelpers._enum2str(status))
-                        data_str.append(str(msg[1]))
+                        data_str.insert(0, MidiHelpers._enum2str(status,hexa))
+                        data_str.append(int_to_str(msg[1],hexa))
                         invalid_data = False
                         
                 elif status==ChannelMsg.PitchBendChange:
                     if size==3:
-                        data_str.insert(0, MidiHelpers._enum2str(status))
-                        data_str.append('LSB='+str(msg[1]))
-                        data_str.append('MSB='+str(msg[2]))
+                        data_str.insert(0, MidiHelpers._enum2str(status,hexa))
+                        data_str.append('LSB='+int_to_str(msg[1],hexa))
+                        data_str.append('MSB='+int_to_str(msg[2],hexa))
                         invalid_data = False
                 
             elif MidiHelpers._has_value(SystemCommonMsg, msg[0]):
                 status = SystemCommonMsg(msg[0])
-                data_str.insert(0, MidiHelpers._enum2str(status))
+                data_str.insert(0, MidiHelpers._enum2str(status,hexa))
                 invalid_data = False
                 # TBD
             else:
@@ -368,20 +374,20 @@ class MidiHelpers:
         octave = value//12
         return MidiHelpers._notes_str[note]+str(octave+1)
     
-    def send_bytes(outport, bytes_msg:list)->bool:
+    def send_bytes(outport, bytes_msg:list, hexa:bool)->bool:
         if len(bytes_msg)>3 and bytes_msg[0] != 0xF0:
             bytes_msg.insert(0, 0xF0)
         try:
             midimsg:mido.Message = mido.Message.from_bytes(bytes_msg)
         except:
-            print('error: Invalid midi message '+MidiHelpers.bytes_to_raw_string(bytes_msg), file=sys.stderr)
+            print('error: Invalid midi message '+MidiHelpers.bytes_to_raw_string(bytes_msg,hexa), file=sys.stderr)
             return False
-        print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (to: "'+outport[1]+'")')
+        print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg,hexa)+ ' (to: "'+outport[1]+'")')
         outport[0].send(midimsg)
         return True
     
     def _has_value(enum, value)->bool:
         return value in enum._value2member_map_ 
     
-    def _enum2str(enumvalue)->str:
-        return str(enumvalue).split('.')[1]
+    def _enum2str(enumvalue, hexa:bool)->str:
+        return str(enumvalue).split('.')[1]+'('+int_to_str(enumvalue.value,hexa)+')'

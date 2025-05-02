@@ -26,12 +26,12 @@ def signal_handler(signal, frame):
     """Handler for Ctrl-C"""
     sys.exit(0)
 
-def callback_receive(midimsg, inport, outport = None):
+def callback_receive(midimsg, inport, outport = None, hexa = False):
     outstr = ''
     if outport:
         outport[0].send(midimsg)
         outstr = '", to: "'+outport[1]+'"'
-    print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg)+ ' (from: "'+inport[1]+'"'+outstr+')')
+    print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg,hexa)+ ' (from: "'+inport[1]+'"'+outstr+')')
     
 def cmd_list_port():
     ports = MidiHelpers.get_midi_ports()
@@ -86,28 +86,28 @@ def get_or_create_port(port, out, create_port_if_needed = True):
     
     return (midi, port_name)
 
-def cmd_transfer(input_port, output_port):
+def cmd_transfer(input_port, output_port, hexa:bool):
     inport = get_or_create_port(input_port, False)
     outport = get_or_create_port(output_port, True)
 
     if inport and outport:
-        inport[0].callback = partial(callback_receive, inport=inport, outport=outport)
+        inport[0].callback = partial(callback_receive, inport=inport, outport=outport, hexa=hexa)
         # Enter infinite loop (until CTRL+C is pressed)
         signal.signal(signal.SIGINT, signal_handler)
         while True:
             time.sleep(1)
 
-def cmd_capture(input_port):
+def cmd_capture(input_port, hexa:bool):
     inport = get_or_create_port(input_port, False)
 
     if inport:
-        inport[0].callback = partial(callback_receive, inport=inport)
+        inport[0].callback = partial(callback_receive, inport=inport, hexa=hexa)
         # Enter infinite loop (until CTRL+C is pressed)
         signal.signal(signal.SIGINT, signal_handler)
         while True:
             time.sleep(1)
 
-def cmd_send(output_port, msg:list):
+def cmd_send(output_port, msg:list, hexa:bool):
     bytes_msg = []
     for value in msg:
         midivalue = str_to_int(value)
@@ -119,7 +119,7 @@ def cmd_send(output_port, msg:list):
     outport = get_or_create_port(output_port, True, False)
 
     if outport:
-        MidiHelpers.send_bytes(outport, bytes_msg)
+        MidiHelpers.send_bytes(outport, bytes_msg, hexa)
         outport[0].close()
 
 def main(argv):
@@ -128,27 +128,30 @@ def main(argv):
 
     parser_list_cmd = subparsers.add_parser('list', help='print the list of MIDI ports available on this system', argument_default="test")
 
-    parser_transfer_cmd = subparsers.add_parser('transfer', help='transfer midi messages from one port to another')
-    parser_transfer_cmd.add_argument('input_port', help="name (or number) of the midi port to read messages from. If the given port does not exists, a virtual port is created", type=str)
-    parser_transfer_cmd.add_argument('output_port', help="name (or number) of the midi port to write messages to. If the given port does not exists, a virtual port is created", type=str)
+    parser = subparsers.add_parser('transfer', help='transfer midi messages from one port to another')
+    parser.add_argument('input_port', help="name (or number) of the midi port to read messages from. If the given port does not exists, a virtual port is created", type=str)
+    parser.add_argument('output_port', help="name (or number) of the midi port to write messages to. If the given port does not exists, a virtual port is created", type=str)
+    parser.add_argument('-H', help='integer values are logged in hexa format', action='store_true')
 
-    parser_transfer_cmd = subparsers.add_parser('capture', help='capture and print received midi messages')
-    parser_transfer_cmd.add_argument('input_port', help="name (or number) of the midi port to read messages from. If the given port does not exists, a virtual port is created", type=str)
+    parser = subparsers.add_parser('capture', help='capture and print received midi messages')
+    parser.add_argument('input_port', help="name (or number) of the midi port to read messages from. If the given port does not exists, a virtual port is created", type=str)
+    parser.add_argument('-H', help='integer values are logged in hexa format', action='store_true')
 
-    parser_transfer_cmd = subparsers.add_parser('send', help='send a midi message')
-    parser_transfer_cmd.add_argument('output_port', help="name (or number) of the midi port to write the message to", type=str)
-    parser_transfer_cmd.add_argument('value', help="Integer value to add to the MIDI message, that may be represented as an hex value (like 0x80)", type=str, nargs='+')
+    parser = subparsers.add_parser('send', help='send a midi message')
+    parser.add_argument('output_port', help="name (or number) of the midi port to write the message to", type=str)
+    parser.add_argument('value', help="Integer value to add to the MIDI message, that may be represented as an hex value (like 0x80)", type=str, nargs='+')
+    parser.add_argument('-H', help='integer values are logged in hexa format', action='store_true')
 
     args = argParser.parse_args()
 
     if args.cmd=='list':
         cmd_list_port()
     elif args.cmd=='transfer':
-        cmd_transfer(args.input_port, args.output_port)
+        cmd_transfer(args.input_port, args.output_port, args.H)
     elif args.cmd=='capture':
-        cmd_capture(args.input_port)
+        cmd_capture(args.input_port, args.H)
     elif args.cmd=='send':
-        cmd_send(args.output_port, args.value)
+        cmd_send(args.output_port, args.value, args.H)
 
 if __name__ == "__main__":
    main(sys.argv[1:])
