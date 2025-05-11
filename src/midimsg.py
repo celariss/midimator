@@ -1,7 +1,8 @@
 import datetime
-from enum import Enum
-import sys
-import mido
+from enum import Enum, auto
+from typing import Self
+from helpers import Helpers
+
 
 # source : https://midi.org/spec-detail
 # MIDI 1.0 message format :
@@ -30,10 +31,10 @@ class ChannelMsg(Enum):
     # if controller number < 120, it's a ControlChange message :
     #   This message is sent when a controller value changes
     #   Controllers include devices such as pedals and levers
-    #   Compare Data1 to ControlChangeMsg enum to get exact message
+    #   Compare Data1 to ControlChange enum to get exact message
     # if controller number is in [120,127], it's a Channel Mode Message :
-    #   Compare Data1 to ChannelModeMsg enum to get exact message
-    CtrlChangeOrChannelModeMsg = 0X0B
+    #   Compare Data1 to ChannelMode enum to get exact message
+    CtrlChangeOrChannelMode = 0X0B
     # This message sent when the patch number changes
     # Data1 : 7=0, [6-0] new program number
     ProgramChange = 0x0C
@@ -50,10 +51,10 @@ class ChannelMsg(Enum):
     PitchBendChange = 0x0E
 
 # Control Change Messages
-#   => when Status == ChannelMsg.CtrlChangeOrChannelModeMsg and Data1<120 (0x78)
+#   => when Status == ChannelMsg.CtrlChangeOrChannelMode and Data1<120 (0x78)
 # Data1 : event type, see values of the enumeration below
 # Data2 : value associated with the event type
-class ControlChangeMsg(Enum):
+class ControlChange(Enum):
     BankSelect     = 0x00
     ModulationWheelOrLever = 0x01
     BreathController = 0x02
@@ -193,40 +194,40 @@ class ControlChangeMsg(Enum):
     Undefined_77   = 0x77
     
 # Channel Mode Messages
-#   => when Status == ChannelMsg.CtrlChangeOrChannelModeMsg and Data1 in [120,127] ([0x78, 0x7F])
+#   => when Status == ChannelMsg.CtrlChangeOrChannelMode and Data1 in [120,127] ([0x78, 0x7F])
 # Data1 : value of the enumeration below
-class ChannelModeMsg(Enum):
+class ChannelMode(Enum):
     # When All Sound Off is received all oscillators will turn off, 
     # and their volume envelopes are set to zero as soon as possible
     # Data2 = 0
-    AllSoundOff = 120
+    AllSoundOff = 0x78
     # When Reset All Controllers is received, all controller values are reset to their default values
     # (See specific Recommended Practices for defaults)
     # Data2 = 0, unless otherwise allowed in a specific Recommended Practice
-    ResetAllControllers = 121
+    ResetAllControllers = 0x79
     # When Local Control is Off, all devices on a given channel will respond only to data received over MIDI.
     # Played data, etc. will be ignored. Local Control On restores the functions of the normal controllers.
     # Data2 = 0 : LocalControlOff
     # Data2 = 1 : LocalControlOn
-    LocalControl = 122
+    LocalControl = 0x7A
     # When an All Notes Off is received, all oscillators will turn off
     # Data2 = 0
-    AllNotesOff = 123
+    AllNotesOff = 0x7B
     # Omni Mode Off (also causes AllNotesOff)
     # Data2 = 0
-    OmniModeOff = 124
+    OmniModeOff = 0x7C
     # Omni Mode On (also causes AllNotesOff)
     # Data2 = 0
-    OmniModeOn = 125
+    OmniModeOn = 0x7D
     # Mono Mode On (also causes AllNotesOff and Poly Mode Off)
     # Data2 = number of channels (if Omni Off) or 0 (if Omni On)
-    MonoModeOn = 126
+    MonoModeOn = 0x7E
     # Poly Mode On (also causes AllNotesOff and Mono Mode Off)
     # Data2 = 0
-    PolyModeOn = 127
+    PolyModeOn = 0x7F
     
 	
-# System Common and Real-Time Messages
+# System Common Messages
 # Status byte : see enumeration values below
 # Data byte(s) : bit #7 of all data bytes is set to 0
 class SystemCommonMsg(Enum):
@@ -247,6 +248,11 @@ class SystemCommonMsg(Enum):
     TuneRequest = 0xF6
     # Used to terminate a System Exclusive message (see above)
     EndOfExclusive = 0xF7
+
+# Real-Time Messages
+# Status byte : see enumeration values below
+# Data byte(s) : bit #7 of all data bytes is set to 0
+class RealTimeMsg(Enum):
     # Sent 24 times per quarter note when synchronization is required
     TimingClock = 0xF8
     # Start the current sequence playing.
@@ -266,128 +272,210 @@ class SystemCommonMsg(Enum):
     # preferably under manual control. In particular, it should not be sent on power-up.
     Reset = 0xFF
 
-def get_timestr(time:datetime.datetime)->str:
-    return time.strftime("%Y-%m-%dT%H:%M:%S.%f")
 
-def int_to_str(value:int, hexa:bool):
-    if hexa:
-        return hex(value)
-    else:
-        return str(value)
+class MsgCategory(Enum):
+	CVM = auto() # Channel Voice Message
+	CC = auto() # Control Change Message
+	CM = auto() # Channel Mode Message
+	SCM = auto() # System Common Message
+	RTM = auto() # Real-Time Message
+     
+class MidiMsg:
+    """ Category |        msg type          |        parameters
+        CVM      | NoteOff                  | channel, note, velocity
+        CVM      | NoteOn                   | channel, note, velocity
+        CVM      | PolyphonicKeyPressure    | channel, note, velocity
+        CC       | CtrlChangeOrChannelMode  | channel, control_change, value
+        CM       | CtrlChangeOrChannelMode  | channel, channel_mode, value
+        CVM      | ProgramChange            | channel, value
+        CVM      | ChannelPressure          | channel, value
+        CVM      | PitchBendChange          | channel, value
+        SCM      | SystemExclusive          | sys_ex_data
+        SCM      | MidiTimeCodeQuarterFrame | 
+        SCM      | SongPositionPointer      | 
+        SCM      | SongSelect               | 
+        SCM      | TuneRequest              | 
+        RTM      | TimingClock              | 
+        RTM      | Start                    | 
+        RTM      | Continue                 | 
+        RTM      | Stop                     | 
+        RTM      | ActiveSensing            | 
+    """
+    def __init__(self):
+        self.bytes:list[int] = []
+        self.category:MsgCategory = None
+        self.type:(ChannelMsg | SystemCommonMsg | RealTimeMsg) = None
+        self.note:int = -1
+        self.channel:int = -1
+        self.velocity:int = -1
+        self.control_change:ControlChange = None
+        self.channel_mode:ControlChange = None
+        self.value:int = -1
+        self.sys_ex_type:str = ''
 
-class MidiHelpers:
-    def get_midi_ports()->dict:
-        """Return a list of all midi ports available on the current system
-
-        Returns:
-            dict: key item is the port name
-        """
-        available_ports = {}
-        idx = 0
-        for port in mido.get_input_names():
-            available_ports[port] = {'input_idx':idx}
-            idx += 1
-        
-        idx = 0
-        for port in mido.get_output_names():
-            value = available_ports[port] if port in available_ports else {}
-            value['output_idx'] = idx
-            available_ports[port] = value
-            idx += 1
-
-        return available_ports
-    
-    def msg_to_string(midimsg:mido.Message, hexa:bool = False)->str:
-        return MidiHelpers.msg_to_raw_string(midimsg,hexa) + ' = ' + MidiHelpers.msg_to_friendly_string(midimsg,hexa)
-    
-    def msg_to_raw_string(midimsg:mido.Message, hexa:bool = False)->str:
-        return MidiHelpers.bytes_to_raw_string(midimsg.bytes(), hexa)
-    
-    def bytes_to_raw_string(midimsg:list, hexa:bool = False)->str:
-        return '[' + ', '.join(int_to_str(x,hexa) for x in midimsg) + ']'
-    
-    def msg_to_friendly_string(msg:mido.Message, hexa:bool = False)->str:
-        msg = msg.bytes()
+    def from_list(msg:list[int])->Self:
+        res:MidiMsg = MidiMsg()
         size = len(msg)
-        data_str = []
         invalid_data = True
         if size>0:
+            res.bytes = msg
             MSB = (msg[0]>>4)&0xF
             LSB = msg[0]&0xF
-            if MidiHelpers._has_value(ChannelMsg, MSB):
-                status = ChannelMsg(MSB)
-                channel = LSB
-                data_str.append('channel:' + int_to_str(channel+1, hexa))
-                
-                if status==ChannelMsg.NoteOff or status==ChannelMsg.NoteOn or status==ChannelMsg.PolyphonicKeyPressure:
+            if MidiMsg.__has_value(ChannelMsg, MSB):
+                res.category = MsgCategory.CVM
+                res.type = ChannelMsg(MSB)
+                res.channel = LSB                
+                if res.type==ChannelMsg.NoteOff or res.type==ChannelMsg.NoteOn or res.type==ChannelMsg.PolyphonicKeyPressure:
                     if size==3:
-                        data_str.insert(0, MidiHelpers._enum2str(status,hexa))
-                        data_str.append('note:'+MidiHelpers._note_to_string(msg[1])+'('+int_to_str(msg[1],hexa)+')')
-                        data_str.append('velocity:' + int_to_str(msg[2],hexa))
+                        res.note = msg[1]
+                        res.velocity = msg[2]
                         invalid_data = False
                 
-                elif status==ChannelMsg.CtrlChangeOrChannelModeMsg:
+                elif res.type==ChannelMsg.CtrlChangeOrChannelMode:
                     if size==3:
-                        if msg[1]<120 and msg[1] in ControlChangeMsg:
-                            data_str.insert(0, 'CC.'+MidiHelpers._enum2str(ControlChangeMsg(msg[1]),hexa))
+                        if msg[1]<120 and msg[1] in ControlChange:
+                            res.category = MsgCategory.CC
+                            res.control_change = ControlChange(msg[1])
                             if msg[2]<128:
-                                data_str.append(int_to_str(msg[2],hexa))
+                                res.value = msg[2]
                                 invalid_data = False
-                        elif msg[1]>=120 and msg[1] in ChannelModeMsg:
-                            data_str.insert(0, 'CM.'+MidiHelpers._enum2str(ChannelModeMsg(msg[1]),hexa))
+                        elif msg[1]>=120 and msg[1] in ChannelMode:
+                            res.category = MsgCategory.CM
+                            res.channel_mode = ChannelMode(msg[1])
                             if msg[2]<128:
-                                data_str.append(int_to_str(msg[2],hexa))
+                                res.value = msg[2]
                                 invalid_data = False
                                 
-                elif status==ChannelMsg.ProgramChange or status==ChannelMsg.ChannelPressure:
+                elif res.type==ChannelMsg.ProgramChange or res.type==ChannelMsg.ChannelPressure:
                     if size==2:
-                        data_str.insert(0, MidiHelpers._enum2str(status,hexa))
-                        data_str.append(int_to_str(msg[1],hexa))
+                        res.value = msg[1]
                         invalid_data = False
                         
-                elif status==ChannelMsg.PitchBendChange:
+                elif res.type==ChannelMsg.PitchBendChange:
                     if size==3:
-                        data_str.insert(0, MidiHelpers._enum2str(status,hexa))
-                        data_str.append('LSB='+int_to_str(msg[1],hexa))
-                        data_str.append('MSB='+int_to_str(msg[2],hexa))
+                        res.value = (msg[2]<<7)+msg[1]
                         invalid_data = False
                 
-            elif MidiHelpers._has_value(SystemCommonMsg, msg[0]):
-                status = SystemCommonMsg(msg[0])
-                data_str.insert(0, MidiHelpers._enum2str(status,hexa))
-                invalid_data = False
-                # TBD
-            else:
-                return 'Unknown message'
-        else:
-            return 'empty message'
-            
-        if invalid_data:
-            data_str.append('invalid data')
-        return '['+', '.join(data_str)+']'
+            elif MidiMsg.__has_value(SystemCommonMsg, msg[0]):
+                res.category = MsgCategory.SCM
+                res.type = SystemCommonMsg(msg[0])
+                if res.type==SystemCommonMsg.SystemExclusive:
+                    if size>2 and (msg[len(msg)-1] == SystemCommonMsg.EndOfExclusive.value):
+                        # Is it a universal system exclusive message ?
+                        if res.bytes[1] == 0x7E:
+                            if size>3:
+                                # Non real-time message
+                                res.sys_ex_type = 'NRTM'
+                                invalid_data = False
+                        if res.bytes[1] == 0x7F:
+                            if size>3:
+                                # Real-time message
+                                res.sys_ex_type = 'RTM'
+                                invalid_data = False
+                        else:
+                            # Manufacturer specific message
+                            res.sys_ex_type = 'MSM'
+                            invalid_data = False
+                        
+                elif size>1 and res.type==SystemCommonMsg.MidiTimeCodeQuarterFrame:
+                    # Spec is unclear ... TBD
+                    res.value = msg[1]
+                    invalid_data = False
+                elif size==3 and res.type==SystemCommonMsg.SongPositionPointer:
+                    res.value = (msg[2]<<7)+msg[1]
+                    invalid_data = False
+                elif size==2 and res.type==SystemCommonMsg.SongSelect:
+                    res.value = msg[1]
+                    invalid_data = False
+                elif size==1 and res.type==SystemCommonMsg.TuneRequest:
+                    invalid_data = False
 
-    _notes_str = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    def _note_to_string(value:int)->str:
-        if value>127:
-            return 'invalid note'
-        note = value%12
-        octave = value//12
-        return MidiHelpers._notes_str[note]+str(octave+1)
+            elif MidiMsg.__has_value(RealTimeMsg, msg[0]):
+                res.category = MsgCategory.RTM
+                res.type = RealTimeMsg(msg[0])
+                if size==1 and (
+                    res.type==RealTimeMsg.TimingClock or
+                    res.type==RealTimeMsg.Start or
+                    res.type==RealTimeMsg.Continue or
+                    res.type==RealTimeMsg.Stop or
+                    res.type==RealTimeMsg.ActiveSensing or
+                    res.type==RealTimeMsg.Reset):
+                    invalid_data = False
+            
+            else:
+                return None
     
-    def send_bytes(outport, bytes_msg:list, hexa:bool)->bool:
-        if len(bytes_msg)>3 and bytes_msg[0] != 0xF0:
-            bytes_msg.insert(0, 0xF0)
-        try:
-            midimsg:mido.Message = mido.Message.from_bytes(bytes_msg)
-        except:
-            print('error: Invalid midi message '+MidiHelpers.bytes_to_raw_string(bytes_msg,hexa), file=sys.stderr)
-            return False
-        print(get_timestr(datetime.datetime.now())+' | '+MidiHelpers.msg_to_string(midimsg,hexa)+ ' (to: "'+outport[1]+'")')
-        outport[0].send(midimsg)
-        return True
+        if invalid_data:
+            return None
+
+        return res
     
-    def _has_value(enum, value)->bool:
-        return value in enum._value2member_map_ 
+    def to_raw_string(self, hexa:bool = False)->str:
+        return '[' + ', '.join(Helpers.int_to_str(x,hexa) for x in self.bytes) + ']'
     
-    def _enum2str(enumvalue, hexa:bool)->str:
-        return str(enumvalue).split('.')[1]+'('+int_to_str(enumvalue.value,hexa)+')'
+    def to_string(self, hexa:bool = False)->str:
+        data_str:list = []
+        
+        if isinstance(self.type, ChannelMsg):
+            data_str.append(MidiMsg.__enum2str(ChannelMsg(self.type),hexa))
+            data_str.append('channel:' + Helpers.int_to_str(self.channel+1, hexa))
+            if self.type==ChannelMsg.NoteOff or self.type==ChannelMsg.NoteOn or self.type==ChannelMsg.PolyphonicKeyPressure:
+                data_str.append('note:'+MidiMsg.note_to_string(self.note)+'('+Helpers.int_to_str(self.note,hexa)+')')
+                data_str.append('velocity:' + Helpers.int_to_str(self.velocity,hexa))
+            elif self.type==ChannelMsg.CtrlChangeOrChannelMode:
+                if self.control_change:
+                    data_str[0] = MidiMsg.__enum2str(ControlChange(self.control_change),hexa)
+                    data_str.append(Helpers.int_to_str(self.value,hexa))
+                elif self.channel_mode:
+                    data_str[0] = MidiMsg.__enum2str(ChannelMode(self.channel_mode),hexa)
+                    data_str.append(Helpers.int_to_str(self.value,hexa))
+            elif self.type==ChannelMsg.ProgramChange or self.type==ChannelMsg.ChannelPressure or self.type==ChannelMsg.PitchBendChange:
+                data_str.append(Helpers.int_to_str(self.value,hexa))
+        
+        elif isinstance(self.type, SystemCommonMsg):
+            data_str.append(MidiMsg.__enum2str(SystemCommonMsg(self.type),hexa))
+            if self.type==SystemCommonMsg.SystemExclusive:
+                data_str.append(self.sys_ex_type)
+            """ elif self.type==SystemCommonMsg.MidiTimeCodeQuarterFrame:
+            elif self.type==SystemCommonMsg.SongPositionPointer:
+            elif self.type==SystemCommonMsg.SongSelect:
+            elif self.type==SystemCommonMsg.TuneRequest: """
+        
+        elif isinstance(self.type, RealTimeMsg):
+             data_str.append(MidiMsg.__enum2str(RealTimeMsg(self.type),hexa))
+             #TBD
+        
+        data_str[0] = MidiMsg.__enum2str(MsgCategory(self.category),hexa,False) + '.' + data_str[0]
+        return '['+', '.join(data_str)+']'
+    
+    __notes_str = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    def note_to_string(value:int, err_str:str = 'invalid note')->str:
+            if value>127:
+                return err_str
+            note = value%12
+            octave = value//12
+            return MidiMsg.__notes_str[note]+str(octave+1)
+    
+    def __has_value(enum, value)->bool:
+        return value in enum._value2member_map_     
+    def __enum2str(enumvalue, hexa:bool,add_value:bool=True)->str:
+        if add_value:
+            return str(enumvalue).split('.')[1]+'('+Helpers.int_to_str(enumvalue.value,hexa)+')'
+        else:
+            return str(enumvalue).split('.')[1]
+
+
+
+class Filter:
+    def __init__(self):
+        self.inclusive:bool = True
+        self.types:list = []
+        self.velocity_min:int = 0
+        self.velocity_max:int = 127		
+        self.channel_min:int = 0
+        self.channel_max:int = 15
+
+class Rule:
+    def __init__(self):
+        self.inports = []
+        self.filters:list[list[Filter]] = []

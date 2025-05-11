@@ -1,0 +1,47 @@
+rules:
+	rule_name|midi_out:
+		(midi_in|rule_name){1,n} ((+|-)filter){0,n}
+		...
+		
+=> filter: type:[CC, ..., noteoff, noteon];velocity|channel:v,>v,<v;
+
+
+python:
+	config_rules = {} <- loadConfig()
+	infiniteLoopDetection()
+	canonical_rules = {
+		rule_name|midi_out: { # if rule_name then only goes to log
+			[ {
+				inports: []
+				filters: [
+					[
+						filter_group:[{type:
+						velocity:
+						channel:
+						}]
+					]
+				]
+			  }
+			]
+		}
+	}
+
+enum TYPE:
+	CVM, # Channel Voice Message
+	CC, # Control Change Message
+	CM, # Channel Mode Message
+	SCM, # System Common Message
+	SRTM, # System Real-Time Message
+	
+class Filter:
+	def __init(self):
+		self.type = 
+		self.velocity_min = 0
+		self.velocity_max = 127		
+		self.channel_min = 0
+		self.channel_max = 15
+
+class Rule:
+	def __init(self):
+		self.inports = [str]
+		self.filters = [[Filter]]
