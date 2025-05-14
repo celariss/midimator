@@ -20,12 +20,14 @@ class Helpers:
             return default
         return result
     
-    def int_to_str(value:int, hexa:bool):
+    def int_to_str(value:int, hexa:bool)->str:
         if hexa:
-            return hex(value)
+            return Helpers.hex_to_str(value)
         else:
             return str(value)
-
+        
+    def hex_to_str(value:int, pref:str = "0x", suff:str = '')->str:
+        return pref+('%02X' % value) + suff
 
 class MidiHelpers:
     def get_midi_ports()->dict:
@@ -73,6 +75,7 @@ class MidiHelpers:
         """
         port_name = None
         ports:dict = MidiHelpers.get_midi_ports()
+
         port_ = Helpers.str_to_int(port)
         if port_ != None:
             if port_>0 and port_<=len(ports):
@@ -80,6 +83,8 @@ class MidiHelpers:
             else:
                 print('error: given number ('+str(port_)+') for midi port is out of range', file=sys.stderr)
                 return None
+        elif port in ports:
+            port_name = port
         
         virtual = False
         if port_name:

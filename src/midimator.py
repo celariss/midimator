@@ -6,7 +6,7 @@ import time
 import mido
 
 from helpers import MidiHelpers, Helpers
-from midimsg import MidiMsg
+from midimsg import MidiMsg, Manufacturer
 
 
 class MidiMator:
@@ -61,8 +61,17 @@ class MidiMator:
         if outport:
             outport[0].send(midimsg)
             outstr = '", to: "'+outport[1]+'"'
-        msg:MidiMsg = MidiMsg.from_list(midimsg.bytes())
-        msg_str = (msg.to_raw_string(hexa) + ' = ' + msg.to_string(hexa)) if msg else 'INVALID MESSAGE'
+        msg:MidiMsg
+        try:
+            msg = MidiMsg.from_list(midimsg.bytes())
+        except:
+            print('error: exception in MidiMsg.from_list(); data: '+str(midimsg.bytes()), file=sys.stderr)
+            return
+        try:
+            msg_str = (msg.to_raw_string(hexa) + ' = ' + msg.to_string(hexa)) if msg else 'INVALID MESSAGE'
+        except:
+            print('error: exception in MidiMsg.to_string(); data: '+str(midimsg.bytes()), file=sys.stderr)
+            return
         print(Helpers.get_timestr(datetime.datetime.now())+' | '+ msg_str + ' (from: "'+inport[1]+'"'+outstr+')')
 
     def __signal_handler(signal, frame):
@@ -94,11 +103,11 @@ def main(argv):
     if args.cmd=='list':
         MidiMator.cmd_list_port()
     elif args.cmd=='transfer':
-        MidiMator.cmd_transfer(args.input_port, args.output_port, args.H)
+        MidiMator.cmd_transfer(args.input_port.strip('"'), args.output_port.strip('"'), args.H)
     elif args.cmd=='capture':
-        MidiMator.cmd_capture(args.input_port, args.H)
+        MidiMator.cmd_capture(args.input_port.strip('"'), args.H)
     elif args.cmd=='send':
-        MidiMator.cmd_send(args.output_port, args.value, args.H)
+        MidiMator.cmd_send(args.output_port.strip('"'), args.value, args.H)
 
 if __name__ == "__main__":
    main(sys.argv[1:])
